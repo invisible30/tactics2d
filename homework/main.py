@@ -117,7 +117,7 @@ def main():
 
                 traj_lenth += 1
                 total_steps += 1
-
+                # print(f"total_steps:{total_steps}")
                 '''Update if its time'''
                 if traj_lenth % opt.T_horizon == 0:
                     agent.train()
