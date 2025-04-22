@@ -145,8 +145,8 @@ class LaneChangingEnv(gym.Env):
 
         if self.continuous:
             self.action_space = spaces.Box(
-                np.array([-self._max_steer, self._min_accel]),
-                np.array([self._max_steer, self._max_accel]),
+                np.array([-self._max_steer, self._min_accel], dtype=np.float32),
+                np.array([self._max_steer, self._max_accel], dtype=np.float32),
                 dtype=np.float32,
             )
         else:
@@ -340,24 +340,31 @@ class LaneChangingEnv(gym.Env):
             # idx = 44 # you can change and fix the index to test a specific scenario
             self.ego_id = ego_candidates[idx][0]
             self.compensation_step = ego_candidates[idx][1] * self.step_size
-            print('start parsing')
+            # print('start parsing')
+            
+            # 使用get_absolute_path获取绝对路径
+            data_dir = get_absolute_path("../data/highD")
+            pickle_file = os.path.join(data_dir, f"highD_participants_ego_id_{idx}_{self.ego_id}")
+            
             # we save the participants to a pickle file for quicker loading
             # if exits, load the participants from the pickle file directly instead of parsing the csv file
-            if os.path.exists("../data/highD_participants_ego_id_" + str(idx) + '_' + str(self.ego_id)):
-                with open("../data/highD_participants_ego_id_" + str(idx) + '_' + str(self.ego_id), "rb") as f:
+            if os.path.exists(pickle_file):
+                with open(pickle_file, "rb") as f:
                     self.participants = pickle.load(f)
-                print('load participants from pickle file: ',f.name)
+                # print('load participants from pickle file: ',f.name)
             else:
+                # 使用os.path.join构建CSV文件路径
+                csv_file = os.path.join(data_dir, "11_tracks.csv")
                 self.participants, _ = self.dataset_parser.parse_trajectory(
-                    "11_tracks.csv",
-                    "../data/highD",
+                    os.path.basename(csv_file),  # 只传递文件名
+                    data_dir,  # 传递目录路径
                     (ego_candidates[idx][1] * self.step_size, ego_candidates[idx][2] * self.step_size),
                 )
                 # save the participants to a pickle file for quicker loading
-                with open("../data/highD_participants_ego_id_" + str(idx) + '_' + str(self.ego_id), "wb") as f:
+                with open(pickle_file, "wb") as f:
                     pickle.dump(self.participants, f)
                 print('save participants to pickle file: ',f.name)
-            print('finish parsing')
+            # print('finish parsing')
 
             if not self.ego_id in self.participants.keys():
                 raise RuntimeError(
