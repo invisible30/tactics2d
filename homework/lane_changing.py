@@ -374,9 +374,9 @@ class LaneChangingEnv(gym.Env):
             self.agent = self.participants[self.ego_id]
             ego_state = self.agent.trajectory.initial_state
             self.destination = self.agent.trajectory.last_state.location
-            logging.info(
-                f"Ego vehicle {self.ego_id} is at {ego_state.location} and targeting at {self.destination}."
-            )
+            # logging.info(
+            #     f"Ego vehicle {self.ego_id} is at {ego_state.location} and targeting at {self.destination}."
+            # )
 
             self.participants[self.ego_id].trajectory.reset(ego_state)
             self.participants[self.ego_id].color = "light-purple"

@@ -103,28 +103,71 @@ def build_state(observation, infos, destination=None):
     ego_state_features = [
         ego_state.location[0], 
         ego_state.location[1],
-        ego_state.heading,
+        ego_state.heading-np.pi,
         ego_state.speed
     ]
     
-    # 2. 车道信息
+    # 确定是否在上方车道（y > -15）
+    is_upper_lane = ego_state.location[1] > -15
+    
+    # 2. 车道信息 - 根据自车位置选择车道
     lane_features = []
+    selected_lanes = {}
+    
+    # 根据中心线的y坐标排序车道
+    sorted_lanes = []
     for lane_id, centerline in centerlines.items():
-        lateral_distance = calculate_lane_lateral_distance(ego_state.location, centerline)
+        # 使用中心线的y坐标平均值作为排序依据
+        avg_y = (centerline[0][1] + centerline[1][1]) / 2
+        
+        # 根据自车位置筛选车道
+        if (is_upper_lane and avg_y > -15) or (not is_upper_lane and avg_y <= -15):
+            sorted_lanes.append((avg_y, lane_id, centerline))
+    
+    # 按y坐标排序（上方车道从大到小，下方车道从小到大）
+    sorted_lanes.sort(reverse=is_upper_lane)
+    
+    # 选择最多三条车道
+    lane_count = 0
+    for _, lane_id, centerline in sorted_lanes:
         lane_direction = np.arctan2(centerline[1][1] - centerline[0][1], 
                                    centerline[1][0] - centerline[0][0])
+        lateral_distance = calculate_lane_lateral_distance(ego_state.location, centerline)
         heading_diff = normalize_angle(ego_state.heading - lane_direction)
         lane_features.extend([lateral_distance, heading_diff])
+        selected_lanes[lane_id] = centerline
+        lane_count += 1
+        
+        # 最多保留三条车道
+        if lane_count >= 3:
+            break
     
-    # 3. 周围车辆信息 (最多考虑5辆最近的车)
+    # 如果车道不足三条，用默认值填充
+    while len(lane_features) < 6:  # 每条车道2个特征，最多3条车道
+        lane_features.extend([100, 0])  # 大距离值表示没有车道
+    
+    # 3. 周围车辆信息 - 根据自车位置选择车辆
     surrounding_vehicles = []
     vehicle_distances = []
     
     for vehicle_id, state in other_states.items():
+        # 计算车辆相对位置
         rel_x = state.location[0] - ego_state.location[0]
         rel_y = state.location[1] - ego_state.location[1]
-        distance = np.sqrt(rel_x**2 + rel_y**2)
-        vehicle_distances.append((distance, vehicle_id))
+        
+        # 根据自车位置筛选车辆
+        if (is_upper_lane and state.location[1] > -15) or (not is_upper_lane and state.location[1] <= -15):
+            # 计算距离
+            distance = np.sqrt(rel_x**2 + rel_y**2)
+            
+            # 计算车辆相对角度
+            rel_angle = normalize_angle(np.arctan2(rel_y, rel_x) - ego_state.heading)
+            
+            # 如果角度差大于1，忽略
+            if abs(rel_angle) > 1:
+                continue
+                
+            vehicle_distances.append((distance, vehicle_id))
     
     # 按距离排序
     vehicle_distances.sort()
@@ -137,6 +180,8 @@ def build_state(observation, infos, destination=None):
         rel_x = state.location[0] - ego_state.location[0]
         rel_y = state.location[1] - ego_state.location[1]
         rel_speed = ego_state.speed - state.speed
+        # rel_speed = state.speed
+        
         rel_angle = normalize_angle(np.arctan2(rel_y, rel_x) - ego_state.heading)
         
         surrounding_vehicles.extend([rel_x, rel_y, rel_speed, distance, rel_angle])
@@ -158,8 +203,9 @@ def build_state(observation, infos, destination=None):
     )
     goal_features = [distance_to_destination, angle_to_destination]
     
-    # 5. 碰撞风险评估
-    forward_collision_risk = calculate_collision_risk(ego_state, other_states)
+    # 5. 碰撞风险评估 - 只考虑后面车道上的车辆
+    filtered_states = {k: v for k, v in other_states.items() if k in [vid for _, vid in vehicle_distances]}
+    forward_collision_risk = calculate_collision_risk(ego_state, filtered_states)
     risk_features = [forward_collision_risk]
     
     # 整合所有特征

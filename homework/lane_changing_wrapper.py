@@ -43,9 +43,9 @@ class LaneChangingWrapper(gym.Env):
         
         # 定义观察空间和动作空间
         self.observation_space = spaces.Box(
-            low=np.full((44,), -np.inf, dtype=np.float32), 
-            high=np.full((44,), np.inf, dtype=np.float32), 
-            shape=(44,),  # 状态向量维度
+            low=np.full((38,), -np.inf, dtype=np.float32), 
+            high=np.full((38,), np.inf, dtype=np.float32), 
+            shape=(38,),  # 状态向量维度
             dtype=np.float32
         )
         

@@ -128,18 +128,24 @@ def Reward_adapter(r, EnvIdex):
 		r = (r + 8) / 8
 	return r
 
-def evaluate_policy(env, agent, max_action, turns):
+def evaluate_policy(env, agent, max_action, turns=3, state_normalizer=None):
 	total_scores = 0
 	for j in range(turns):
 		s, info = env.reset()
 		done = False
+		episode_reward = 0
 		while not done:
-			a, logprob_a = agent.select_action(s, deterministic=True) # Take deterministic actions when evaluation
-			act = Action_adapter(a, max_action)  # [0,1] to [-max,max]
-			s_next, r, dw, tr, info = env.step(act)
+			# 对状态进行归一化（如果提供了归一化器）
+			if state_normalizer is not None:
+				s_normalized = state_normalizer.normalize(s)
+				a, _ = agent.select_action(s_normalized, deterministic=True)
+			else:
+				a, _ = agent.select_action(s, deterministic=True)
+				
+			act = Action_adapter(a, max_action)
+			s_prime, r, dw, tr, info = env.step(act)
+			episode_reward += r
 			done = (dw or tr)
-
-			total_scores += r
-			s = s_next
-
-	return total_scores/turns
+			s = s_prime
+		total_scores += episode_reward
+	return total_scores / turns

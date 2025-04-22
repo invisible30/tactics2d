@@ -3,16 +3,82 @@ import os, shutil
 import argparse
 import torch
 import gymnasium as gym
+import numpy as np
 
 from utils import str2bool, Action_adapter, Reward_adapter, evaluate_policy
 from PPO import PPO_agent
 from lane_changing_wrapper import LaneChangingWrapper
 
+# 添加状态归一化器类
+class StateNormalizer:
+    def __init__(self, clip=True, epsilon=1e-8):
+        self.clip = clip
+        self.epsilon = epsilon
+        
+         # state[0:4]
+        max_ego_y=-15
+        min_ego_y=-30
+        max_ego_x=600
+        min_ego_x=0
+        
+        max_ego_heading=2*np.pi
+        min_ego_heading=0
+        max_ego_speed=50
+        min_ego_speed=0
+        # state[4:10]
+        max_lane_dist=10
+        min_lane_dist=-10
+        max_lane_heading=1
+        min_lane_heading=-1
+        # state[10:35]
+        max_surrounding_vehicle_dist=50
+        min_surrounding_vehicle_dist=0
+        max_surrounding_vehicle_heading=1.5
+        min_surrounding_vehicle_heading=-1.5
+        
+        min_rel_speed=-10
+        max_rel_speed=10
+        
+        max_rel_x=40
+        min_rel_x=-40
+        
+        min_rel_y=-10
+        max_rel_y=10
+        # state[35:37]
+        max_goal_dist=400
+        min_goal_dist=0
+        # state[37:38]
+        max_risk=1
+        min_risk=0
+        
+        self.state_low = [min_ego_x, min_ego_y, min_ego_heading, min_ego_speed] + \
+                   [min_lane_dist, min_lane_heading] * 3 + \
+                   [min_rel_x, min_rel_y, min_rel_speed, min_surrounding_vehicle_dist, min_surrounding_vehicle_heading] * 5 + \
+                   [min_goal_dist, min_lane_heading] + \
+                   [min_risk]
+        self.state_low = np.array(self.state_low)
+        self.state_high = [max_ego_x, max_ego_y, max_ego_heading, max_ego_speed] + \
+                    [max_lane_dist, max_lane_heading] * 3 + \
+                    [max_rel_x, max_rel_y, max_rel_speed, max_surrounding_vehicle_dist, max_surrounding_vehicle_heading] * 5 + \
+                    [max_goal_dist, max_lane_heading] + \
+                    [max_risk]
+        self.state_high = np.array(self.state_high)
+        
+    def normalize(self, state):
+        state = np.array(state)
+        norm = 2 * ((state - self.state_low) / (self.state_high - self.state_low + self.epsilon)) - 1
+        if self.clip:
+            norm = np.clip(norm, -1, 1)
+        return norm
+
+    def denormalize(self, norm_state):
+        return norm_state * (self.state_high - self.state_low) + self.state_low
+
 '''Hyperparameter Setting'''
 parser = argparse.ArgumentParser()
 parser.add_argument('--dvc', type=str, default='cuda', help='running device: cuda or cpu')
 parser.add_argument('--EnvIdex', type=int, default=6, help='PV1, Lch_Cv2, Humanv4, HCv4, BWv3, BWHv3, LaneChanging')
-parser.add_argument('--write', type=str2bool, default=True, help='Use SummaryWriter to record the training')
+parser.add_argument('--write', type=str2bool, default=False, help='Use SummaryWriter to record the training')
 parser.add_argument('--render', type=str2bool, default=False, help='Render or Not')
 parser.add_argument('--Loadmodel', type=str2bool, default=False, help='Load pretrained model or Not')
 parser.add_argument('--ModelIdex', type=int, default=100, help='which model to load')
@@ -50,9 +116,12 @@ def main():
     if opt.EnvIdex == 6:  # LaneChanging环境
         env = LaneChangingWrapper(render_mode="human" if opt.render else "rgb_array", difficulty=opt.difficulty)
         eval_env = LaneChangingWrapper(render_mode="rgb_array", difficulty=opt.difficulty)
+        # 创建状态归一化器
+        state_normalizer = StateNormalizer()
     else:
         env = gym.make(EnvName[opt.EnvIdex], render_mode = "human" if opt.render else None)
         eval_env = gym.make(EnvName[opt.EnvIdex])
+        state_normalizer = None
     
     opt.state_dim = env.observation_space.shape[0]
     opt.action_dim = env.action_space.shape[0]
@@ -89,7 +158,7 @@ def main():
 
     if opt.render:
         while True:
-            ep_r = evaluate_policy(env, agent, opt.max_action, 1)
+            ep_r = evaluate_policy(env, agent, opt.max_action, 1, state_normalizer)
             print(f'Env:{EnvName[opt.EnvIdex]}, Episode Reward:{ep_r}')
     else:
         traj_lenth, total_steps = 0, 0
@@ -101,7 +170,13 @@ def main():
             '''Interact & trian'''
             while not done:
                 '''Interact with Env'''
-                a, logprob_a = agent.select_action(s, deterministic=False) # use stochastic when training
+                # 对于LaneChanging环境，对状态进行归一化
+                if opt.EnvIdex == 6 and state_normalizer is not None:
+                    s_normalized = state_normalizer.normalize(s)
+                    a, logprob_a = agent.select_action(s_normalized, deterministic=False)
+                else:
+                    a, logprob_a = agent.select_action(s, deterministic=False)
+                    
                 act = Action_adapter(a,opt.max_action) #[0,1] to [-max,max]
                 s_next, r, dw, tr, info = env.step(act) # dw: dead&win; tr: truncated
                 
@@ -112,7 +187,13 @@ def main():
                 done = (dw or tr)
 
                 '''Store the current transition'''
-                agent.put_data(s, a, r, s_next, logprob_a, done, dw, idx = traj_lenth)
+                # 对于LaneChanging环境，存储归一化后的状态
+                if opt.EnvIdex == 6 and state_normalizer is not None:
+                    s_next_normalized = state_normalizer.normalize(s_next)
+                    agent.put_data(s_normalized, a, r, s_next_normalized, logprob_a, done, dw, idx=traj_lenth)
+                else:
+                    agent.put_data(s, a, r, s_next, logprob_a, done, dw, idx=traj_lenth)
+                    
                 s = s_next
 
                 traj_lenth += 1
@@ -125,7 +206,7 @@ def main():
 
                 '''Record & log'''
                 if total_steps % opt.eval_interval == 0:
-                    score = evaluate_policy(eval_env, agent, opt.max_action, turns=3) # evaluate the policy for 3 times, and get averaged result
+                    score = evaluate_policy(eval_env, agent, opt.max_action, turns=3, state_normalizer=state_normalizer) # 传入归一化器
                     if opt.write: writer.add_scalar('ep_r', score, global_step=total_steps)
                     print('EnvName:',EnvName[opt.EnvIdex],'seed:',opt.seed,'steps: {}k'.format(int(total_steps/1000)),'score:', score)
 
