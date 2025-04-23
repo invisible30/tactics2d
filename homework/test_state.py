@@ -173,5 +173,5 @@ def test():
     print(f"一共有{count}次")
 if __name__ == "__main__":
     # np.random.seed(0)  # define the random seed to reproduce the scenario
-    # main()
-    test()
+    main()
+    # test()

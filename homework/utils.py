@@ -132,6 +132,14 @@ def evaluate_policy(env, agent, max_action, turns=3, state_normalizer=None):
 	total_scores = 0
 	for j in range(turns):
 		s, info = env.reset()
+		
+		# 检查s[0]是否大于100，如果是则重新初始化环境
+		reset_attempts = 0
+		while s[0] > 100 and reset_attempts < 10:  # 设置最大尝试次数，避免无限循环
+			# print(f"评估时状态s[0]={s[0]} > 100，重新初始化环境")
+			s, info = env.reset()
+			reset_attempts += 1
+			
 		done = False
 		episode_reward = 0
 		while not done:

@@ -316,6 +316,12 @@ class LaneChangingEnv(gym.Env):
                 self.status = ScenarioStatus.COMPLETED
                 return
 
+            # 检查自车是否在道路边界内
+            ego_y = ego_locaction[1]
+            if ego_y < -28.67 or ego_y > -17.16:
+                self.status = ScenarioStatus.OUT_BOUND
+                return
+
             if self.cnt_step > self.max_step * self.step_size:
                 self.status = ScenarioStatus.TIME_EXCEEDED
 

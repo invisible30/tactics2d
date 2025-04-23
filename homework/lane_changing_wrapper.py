@@ -104,8 +104,8 @@ class LaneChangingWrapper(gym.Env):
         
         # 判断是否结束
         status = infos["status"].name
-        terminated = status in ["COMPLETED", "COLLIDED", "TIME_EXCEEDED", "OUT_OF_ROAD"]
-        truncated = False
+        terminated = status in ["COMPLETED", "COLLIDED", "TIME_EXCEEDED", "OUT_BOUND"]
+        truncated = status=="FAILED"
         
         # 更新当前状态
         self.current_observation = observation
@@ -150,10 +150,13 @@ class LaneChangingWrapper(gym.Env):
         reward = 0.0
         
         # 1. 安全奖励 - 避免碰撞和危险情况
-        if status == "COLLIDED":
+        if status == "FAILED":
             return -100.0  # 碰撞严重惩罚
-        elif status == "OUT_OF_ROAD":
+        elif status == "OUT_BOUND":
             return -50.0   # 驶出道路惩罚
+        
+        # 添加生存奖励 - 每一步环境没有结束就给予奖励
+        reward += 1.0
         
         # 计算与其他车辆的最小距离
         min_distance = float('inf')
@@ -200,20 +203,23 @@ class LaneChangingWrapper(gym.Env):
         for lane_id, centerline in centerlines.items():
             from build_state import calculate_lane_lateral_distance
             lateral_distance = calculate_lane_lateral_distance(next_ego_state.location, centerline)
-            min_lateral_distance = min(min_lateral_distance, lateral_distance)
+            # 使用距离的绝对值
+            abs_lateral_distance = abs(lateral_distance)
+            min_lateral_distance = min(min_lateral_distance, abs_lateral_distance)
         
         # 车道居中奖励 - 距离车道中心越近奖励越高
         lane_reward = 0.5 * np.exp(-min_lateral_distance)
         reward += lane_reward
         
         # 4. 速度奖励 - 维持合理的行驶速度
-        target_speed = 20.0  # 目标速度
-        speed_diff = abs(next_ego_state.speed - target_speed)
-        speed_reward = 0.2 * np.exp(-0.2 * speed_diff)  # 速度接近目标值时奖励高
-        reward += speed_reward
+        # target_speed = 20.0  # 目标速度
+        # speed_diff = abs(next_ego_state.speed - target_speed)
+        # speed_reward = 0.2 * np.exp(-0.2 * speed_diff)  # 速度接近目标值时奖励高
+        # reward += speed_reward
         
         # 5. 舒适奖励 - 避免急转弯和急加减速
-        comfort_reward = -0.1 * (abs(steering) + 0.1 * abs(accel))
+        # comfort_reward = -0.1 * (abs(steering) + 0.1 * abs(accel))
+        comfort_reward = -10 * steering 
         reward += comfort_reward
         
         # 6. 换道成功奖励
@@ -224,7 +230,7 @@ class LaneChangingWrapper(gym.Env):
             
             for lane_id, centerline in centerlines.items():
                 from build_state import calculate_lane_lateral_distance
-                distance = calculate_lane_lateral_distance(location, centerline)
+                distance = abs(calculate_lane_lateral_distance(location, centerline))  # 使用绝对值
                 if distance < min_distance:
                     min_distance = distance
                     current_lane = lane_id

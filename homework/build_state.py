@@ -9,7 +9,7 @@ def normalize_angle(angle):
     return angle
 
 def calculate_lane_lateral_distance(point, centerline):
-    """计算点到车道的横向距离"""
+    """计算点到车道的横向距离，正值表示在车道右侧，负值表示在车道左侧"""
     if len(centerline) < 2:
         return float('inf')
         
@@ -32,8 +32,8 @@ def calculate_lane_lateral_distance(point, centerline):
     vec_y = point[1] - start_point[1]
     
     # 计算横向距离（点到直线的距离）
-    # 使用向量叉积计算
-    lateral_distance = abs(vec_x * lane_dir_y - vec_y * lane_dir_x)
+    # 使用向量叉积计算，保留符号
+    lateral_distance = vec_x * lane_dir_y - vec_y * lane_dir_x
     
     return lateral_distance
 
